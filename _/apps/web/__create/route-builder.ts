@@ -3,13 +3,31 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Hono } from 'hono';
 import type { Handler } from 'hono/types';
+import { pathToFileURL } from 'node:url';
 import updatedFetch from '../src/__create/fetch';
+// Type helpers so TS knows about Vite's import.meta extensions used below
+declare global {
+  interface ImportMeta {
+    env: { DEV?: boolean; [key: string]: any };
+    glob?: (pattern: string, opts?: any) => Record<string, any>;
+    hot?: {
+      accept: (cb: (newSelf?: any) => void) => void;
+    };
+  }
+}
+
 
 const API_BASENAME = '/api';
 const api = new Hono();
 
 // Get current directory
-const __dirname = join(fileURLToPath(new URL('.', import.meta.url)), '../src/app/api');
+// Prefer the real source folder (so SSR/build reads routes from src during build)
+import { existsSync } from 'node:fs';
+const possibleSrc = join(process.cwd(), 'src', 'app', 'api');
+const __dirname = existsSync(possibleSrc)
+  ? possibleSrc
+  : join(fileURLToPath(new URL('.', import.meta.url)), '../src/app/api');
+
 if (globalThis.fetch) {
   globalThis.fetch = updatedFetch;
 }
@@ -81,8 +99,8 @@ async function registerRoutes() {
 
   for (const routeFile of routeFiles) {
     try {
-      const route = await import(/* @vite-ignore */ `${routeFile}?update=${Date.now()}`);
-
+      const routeUrl = `${pathToFileURL(routeFile).href}?update=${Date.now()}`;
+      const route = await import(/* @vite-ignore */ routeUrl);
       const methods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
       for (const method of methods) {
         try {
@@ -92,9 +110,8 @@ async function registerRoutes() {
             const handler: Handler = async (c) => {
               const params = c.req.param();
               if (import.meta.env.DEV) {
-                const updatedRoute = await import(
-                  /* @vite-ignore */ `${routeFile}?update=${Date.now()}`
-                );
+                const updatedRouteUrl = `${pathToFileURL(routeFile).href}?update=${Date.now()}`;
+                const updatedRoute = await import(/* @vite-ignore */ updatedRouteUrl);
                 return await updatedRoute[method](c.req.raw, { params });
               }
               return await route[method](c.req.raw, { params });
@@ -136,11 +153,11 @@ await registerRoutes();
 
 // Hot reload routes in development
 if (import.meta.env.DEV) {
-  import.meta.glob('../src/app/api/**/route.js', {
-    eager: true,
-  });
+  if (typeof import.meta.glob === 'function') {
+  import.meta.glob('../src/app/api/**/route.js', { eager: true });
+}
   if (import.meta.hot) {
-    import.meta.hot.accept((newSelf) => {
+    import.meta.hot.accept((newSelf: any) => {
       registerRoutes().catch((err) => {
         console.error('Error reloading routes:', err);
       });

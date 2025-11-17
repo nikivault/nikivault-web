@@ -4,7 +4,9 @@
 	"type": "module",
 	"scripts": {
 		"dev": "react-router dev",
+		"prebuild": "node ./scripts/copy-api.js",
 		"build": "react-router build",
+		"postbuild": "node ./scripts/copy-api.js",
 		"typecheck": "react-router typegen && tsc --noEmit"
 	},
 	"dependencies": {
